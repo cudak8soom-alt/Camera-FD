@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+output/
+logs/
+serve.pid
+serve.stop
+.DS_Store
