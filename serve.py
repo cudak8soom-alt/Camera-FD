@@ -43,8 +43,8 @@ _DAHUA_PIC = re.compile(
     r"^(?P<ch>\d+)_(?P<ts>\d{14})_\[(?P<tag>[^\]]*)\]\[(?P<pos>[^\]]*)\]\[(?P<kind>\d+)\]$",
     re.IGNORECASE,
 )
-# [0] = wider scene snap, [1] = face close-up crop
-_KIND_LABEL = {"0": "scene", "1": "closeup"}
+# Face crops are tiny; full scenes are ~100KB+. Firmware often tags both as [0].
+_CLOSEUP_MAX_BYTES = 40_000
 
 log = logging.getLogger("faces")
 
@@ -53,30 +53,53 @@ def env_on(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def friendly_picture_path(path: Path) -> Path | None:
-    """Map Dahua face filenames to a readable name in the same folder."""
-    m = _DAHUA_PIC.match(path.stem)
-    if not m:
-        return None
-    ts = m.group("ts")
-    stamp = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}_{ts[8:10]}-{ts[10:12]}-{ts[12:14]}"
-    label = _KIND_LABEL.get(m.group("kind"), f"part{m.group('kind')}")
-    dest = path.with_name(f"face_{stamp}_{label}{path.suffix.lower()}")
-    if dest == path:
-        return None
+def picture_label(kind: str, size: int) -> str:
+    """scene = wide shot, closeup = face crop (size overrides wrong [0] tags)."""
+    if kind == "1":
+        return "closeup"
+    if kind == "0":
+        return "closeup" if size <= _CLOSEUP_MAX_BYTES else "scene"
+    return f"part{kind}"
+
+
+def _unique_dest(folder: Path, stamp: str, label: str, suffix: str) -> Path:
+    dest = folder / f"face_{stamp}_{label}{suffix}"
     if not dest.exists():
         return dest
     n = 2
     while True:
-        alt = path.with_name(f"face_{stamp}_{label}_{n}{path.suffix.lower()}")
+        alt = folder / f"face_{stamp}_{label}_{n}{suffix}"
         if not alt.exists():
             return alt
         n += 1
 
 
+def friendly_picture_path(path: Path, size: int | None = None) -> Path | None:
+    """Map Dahua face filenames to a readable name in the same folder."""
+    m = _DAHUA_PIC.match(path.stem)
+    if not m:
+        return None
+    if size is None:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+    ts = m.group("ts")
+    stamp = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}_{ts[8:10]}-{ts[10:12]}-{ts[12:14]}"
+    label = picture_label(m.group("kind"), size)
+    dest = _unique_dest(path.parent, stamp, label, path.suffix.lower())
+    if dest == path:
+        return None
+    return dest
+
+
 def rename_picture(path: Path) -> Path:
     """Rename a received picture in place; return final path (original if skipped)."""
-    dest = friendly_picture_path(path)
+    try:
+        size = path.stat().st_size if path.is_file() else 0
+    except OSError:
+        size = 0
+    dest = friendly_picture_path(path, size)
     if dest is None:
         return path
     try:
