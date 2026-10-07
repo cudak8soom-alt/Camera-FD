@@ -14,6 +14,7 @@ import ipaddress
 import logging
 import logging.handlers
 import os
+import re
 import signal
 import socket
 import sys
@@ -36,12 +37,54 @@ PID_FILE = ROOT / "serve.pid"
 STOP_FILE = ROOT / "serve.stop"          # created by stop.ps1 -> graceful shutdown
 PICTURE_EXT = {".jpg", ".jpeg", ".png", ".bmp"}
 BAD_CHARS = str.maketrans({c: "_" for c in '<>:"|?*\\'})
+# Dahua: 001_20261007123325_[M][0@0][1].jpg
+#   -> face_2026-10-07_12-33-25_closeup.jpg
+_DAHUA_PIC = re.compile(
+    r"^(?P<ch>\d+)_(?P<ts>\d{14})_\[(?P<tag>[^\]]*)\]\[(?P<pos>[^\]]*)\]\[(?P<kind>\d+)\]$",
+    re.IGNORECASE,
+)
+# [0] = wider scene snap, [1] = face close-up crop
+_KIND_LABEL = {"0": "scene", "1": "closeup"}
 
 log = logging.getLogger("faces")
 
 
 def env_on(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def friendly_picture_path(path: Path) -> Path | None:
+    """Map Dahua face filenames to a readable name in the same folder."""
+    m = _DAHUA_PIC.match(path.stem)
+    if not m:
+        return None
+    ts = m.group("ts")
+    stamp = f"{ts[0:4]}-{ts[4:6]}-{ts[6:8]}_{ts[8:10]}-{ts[10:12]}-{ts[12:14]}"
+    label = _KIND_LABEL.get(m.group("kind"), f"part{m.group('kind')}")
+    dest = path.with_name(f"face_{stamp}_{label}{path.suffix.lower()}")
+    if dest == path:
+        return None
+    if not dest.exists():
+        return dest
+    n = 2
+    while True:
+        alt = path.with_name(f"face_{stamp}_{label}_{n}{path.suffix.lower()}")
+        if not alt.exists():
+            return alt
+        n += 1
+
+
+def rename_picture(path: Path) -> Path:
+    """Rename a received picture in place; return final path (original if skipped)."""
+    dest = friendly_picture_path(path)
+    if dest is None:
+        return path
+    try:
+        path.rename(dest)
+        return dest
+    except OSError as exc:
+        log.warning("rename failed %s -> %s: %s", path.name, dest.name, exc)
+        return path
 
 
 def lan_ip(camera_host: str) -> str:
@@ -117,12 +160,14 @@ class FaceFTPHandler(FTPHandler):
 
     def on_file_received(self, file: str) -> None:
         path = Path(file)
-        size = path.stat().st_size if path.is_file() else 0
         if path.suffix.lower() in PICTURE_EXT:
+            path = rename_picture(path)
+            size = path.stat().st_size if path.is_file() else 0
             FaceFTPHandler.pictures += 1
             log.info("PICTURE #%d %s (%d bytes) from %s",
-                     FaceFTPHandler.pictures, self._rel(file), size, self.remote_ip)
+                     FaceFTPHandler.pictures, self._rel(str(path)), size, self.remote_ip)
         else:
+            size = path.stat().st_size if path.is_file() else 0
             log.info("file %s (%d bytes) from %s", self._rel(file), size, self.remote_ip)
 
     def on_incomplete_file_received(self, file: str) -> None:
