@@ -3,8 +3,25 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.DS_Store
+
+# Point A
+point_a/.env
+point_a/.venv/
+point_a/output/
+point_a/logs/
+point_a/sync_state.json
+point_a/sync_state.tmp
+point_a/serve.pid
+point_a/serve.stop
+
+# Point B
+point_b/.env
+point_b/.venv/
+point_b/received/
+
+# Legacy local data (old root layout)
 output/
 logs/
 serve.pid
 serve.stop
-.DS_Store

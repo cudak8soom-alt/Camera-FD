@@ -1,10 +1,10 @@
-"""Face inbox: FTP server for Dahua Face Detection picture uploads (Windows).
+"""Point A — FTP inbox for Dahua Face Detection picture uploads (Windows).
 
   Camera: Face Detection -> Snapshot -> FTP -> this PC (FTP_DIR).  No local face model.
 
-Run:   python serve.py
-Stop:  Ctrl+C / Ctrl+Break, or  powershell -ExecutionPolicy Bypass -File stop.ps1
-Debug: FTP_DEBUG=1 in .env -> full FTP dialogue (<- command / -> reply) in console + log.
+Easy start:  powershell -ExecutionPolicy Bypass -File .\\run_camera.ps1
+Stop:        Ctrl+C, or  powershell -ExecutionPolicy Bypass -File stop.ps1
+Debug:       FTP_DEBUG=1 in .env
 """
 
 from __future__ import annotations
